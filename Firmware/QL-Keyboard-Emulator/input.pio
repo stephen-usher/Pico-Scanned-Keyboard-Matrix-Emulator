@@ -1,0 +1,43 @@
+.program input
+   mov y null
+.wrap_target
+sample:
+   in pins,8          ;get 8 bits from input pins to ISR
+   mov x isr          ;input value also in x
+   jmp x!=y changed   ;taken if input has changed
+   mov isr null       ;clear ISR for new sample
+   jmp sample         ;no-change, sample again
+changed:
+   mov y x            ;update compare value
+   push               ;push ISR input data to RX FIFO
+//   irq set 0          ;raise IRQ
+.wrap
+
+% c-sdk {
+#include <hardware/gpio.h>
+#include <hardware/pio.h>
+
+void input_program_init(PIO pio, uint sm, uint offset, uint pin) {
+	int i;
+	pio_sm_set_consecutive_pindirs(pio, sm, pin, 8, false);
+
+	for (i = 0; i < 8; i++)
+	{
+		gpio_init(pin + i);
+		gpio_set_input_enabled(pin + i, true);
+		gpio_pull_up(pin + i);
+		pio_gpio_init(pio, pin + i);
+	}
+
+	pio_sm_config c = input_program_get_default_config(offset);
+
+	sm_config_set_in_pins(&c, pin);
+	sm_config_set_in_pin_count(&c, 8);
+	sm_config_set_clkdiv(&c,(float)1.0);
+	sm_config_set_in_shift(&c, false, false, 32);
+	sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+	
+	pio_sm_init(pio, sm, offset, &c);
+	pio_sm_set_enabled(pio, sm, true);
+}
+%}

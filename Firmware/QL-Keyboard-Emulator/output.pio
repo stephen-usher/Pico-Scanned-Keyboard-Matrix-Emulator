@@ -1,0 +1,36 @@
+.program output
+.wrap_target
+	mov isr null
+	pull block
+	out pins, 8
+.wrap
+
+% c-sdk {
+    // this is a raw helper function for use by the user which sets up the GPIO output, and configures the SM to output on a particular pin
+    
+void output_program_init(PIO pio, uint sm, uint offset, uint pin)
+{
+	int i;
+	pio_sm_set_consecutive_pindirs(pio, sm, pin, 8, true);
+
+	for (i = 0; i < 8; i++)
+	{
+		gpio_init(pin + i);
+		gpio_set_dir(pin + i, GPIO_OUT);
+		gpio_pull_up(pin + i);
+		pio_gpio_init(pio, pin + i);
+	}
+
+	pio_sm_config c = output_program_get_default_config(offset);
+
+	sm_config_set_out_pins(&c, pin, 8);
+	sm_config_set_out_pin_count(&c, 8);
+	sm_config_set_clkdiv(&c,(float)1.0);
+//	sm_config_set_out_shift(&c, true, false, 32);
+//	sm_config_set_out_shift(&c, false, false, 0);
+	sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+
+	pio_sm_init(pio, sm, offset, &c);
+	pio_sm_set_enabled(pio, sm, true);
+}
+%}
