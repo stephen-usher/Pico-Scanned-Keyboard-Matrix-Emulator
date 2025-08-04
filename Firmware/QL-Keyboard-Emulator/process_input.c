@@ -205,6 +205,20 @@ int read_usb_device(struct qlkeycode *keycode)
 	static int usb_keycode;
 	static hid_keyboard_report_t report;
 	static struct qlkeycode oldkeycode = {0, 0, 0};
+
+/*
+ * Why do we have "processing_modifier"?
+ *
+ * The QL's IPC will not process key presses which have a modifier, such
+ * as shift, alt or control, unless it has seen the modifier key being
+ * pressed on its own beforehand.
+ *
+ * So, if a key has a modifier we need to send that on its own first and
+ * then send the complete keycode.
+ *
+ * This probably breaks autorepeat of shifted characters but it's something
+ * we can live with. It would need more effort otherwise.
+ */
 	
 	if (processing_modifier == 0)
 	{
