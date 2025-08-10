@@ -250,8 +250,8 @@ struct qlkeycode usb_keycodes [] = {
 	{0,0,0},
 	{8,3,0}, /* HID_KEY_ARROW_RIGHT */
 	{8,1,0}, /* HID_KEY_ARROW_LEFT */
-	{8,7,0}, /* HID_KEY_ARROW_DOWN */
-	{8,6,0}, /* HID_KEY_ARROW_UP */
+	{8,6,0}, /* HID_KEY_ARROW_DOWN */
+	{8,5,0}, /* HID_KEY_ARROW_UP */
 	{0,0,0}, /* HID_KEY_NUM_LOCK */
 	{7,8,0}, /* HID_KEY_KEYPAD_DIVIDE */
 	{2,7,MOD_SHFT}, /* HID_KEY_KEYPAD_MULTIPLY */
