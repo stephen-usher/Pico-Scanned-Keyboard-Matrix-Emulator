@@ -207,7 +207,7 @@ struct qlkeycode usb_keycodes [] = {
 	{2,5,0}, /* HID_KEY_6 */
 	{1,6,0}, /* HID_KEY_7 */
 	{2,7,0}, /* HID_KEY_8 */
-	{3.7,0}, /* HID_KEY_9 */
+	{3,7,0}, /* HID_KEY_9 */
 	{2,8,0}, /* HID_KEY_0 */
 	{8,7,0}, /* HID_KEY_ENTER */
 	{8,2,0}, /* HID_KEY_ESCAPE */
