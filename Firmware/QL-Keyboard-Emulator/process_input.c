@@ -195,33 +195,51 @@ int read_input_devices(struct qlkeycode *keycode)
 
 hid_keyboard_report_t current_report;
 int usb_report_ready = 0;
-int processing_modifier = 0;
+static int previous_modifier = 0;
+static struct qlkeycode keycode_queue[12];
+static int keycode_queue_count = 0;
+static int keycode_queue_ptr = 0;
 
-int read_usb_device(struct qlkeycode *keycode)
-{
-	int modifier = 0;
-	int tmp_modifier = 0;
-	int is_shifted, is_alt, is_control;
-	static int usb_keycode;
-	static hid_keyboard_report_t report;
-	static struct qlkeycode oldkeycode = {0, 0, 0};
+static int previous_usbpressed[6];
+static int num_previous_usbpressed = 0;
+static int last_usbpressed = 0;
 
 /*
- * Why do we have "processing_modifier"?
+ * The tinyusb library supplies us with up to six pressed keys,
+ * However, it doesn't give then in chronologcal order pressed
+ * and it doesn't have them all neatly bunched up and doesn't tell
+ * us how many there are! We have to work this out ourselves by keeping
+ * a list and remembering which one was last.
+ *
+ * We also need to keep track of modifier status.
  *
  * The QL's IPC will not process key presses which have a modifier, such
  * as shift, alt or control, unless it has seen the modifier key being
  * pressed on its own beforehand.
  *
  * So, if a key has a modifier we need to send that on its own first and
- * then send the complete keycode.
+ * then send the complete keycode. we do this by adding a modifier on its
+ * own as a keypress in the queue.
  *
- * This probably breaks autorepeat of shifted characters but it's something
- * we can live with. It would need more effort otherwise.
  */
+
+int read_usb_device(struct qlkeycode *keycode)
+{
+	int modifier = 0, usbmodifier;
+	int is_shifted, is_alt, is_control;
+	static int usb_keycode;
+	static hid_keyboard_report_t report;
+	static struct qlkeycode oldkeycode = {0, 0, 0};
+	struct qlkeycode current_qlkeycode;
+	int i, j, found, newkey = 0;
+	int usbpressed[6];
+	int num_usbpressed = 0;
+
 	
-	if (processing_modifier == 0)
+	if (keycode_queue_count == 0)
 	{
+		keycode_queue_ptr = 0;
+
 		tuh_task();
 	
 		if (usb_report_ready == 0)
@@ -235,54 +253,118 @@ int read_usb_device(struct qlkeycode *keycode)
 		report = current_report;
 
 		usb_report_ready = 0;
-	}
 
+		is_shifted = report.modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
+		is_alt = report.modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT);
+		is_control = report.modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL);
 
-// Only bothering with the first key press.
+		usbmodifier = 0;
 
-	usb_keycode = report.keycode[0];
+		if (is_shifted)
+			usbmodifier |= MOD_SHFT;
 
-	is_shifted = report.modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
-	is_alt = report.modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT);
-	is_control = report.modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL);
+		if (is_alt)
+			usbmodifier |= MOD_ALT;
+
+		if (is_control)
+			usbmodifier |= MOD_CTRL;
+
+		modifier = usbmodifier;
 
 #if DEBUG > 0
-	printf("Got USB keyboard input. Keycode %02x, is %s shifted, is %s ALT'd, is %s CTRL'd\n", usb_keycode, (is_shifted ? "": "not"), (is_alt ? "": "not"), (is_control ? "": "not"));
+		fprintf(stderr,"read_usb_device: We have a keypress: Modifier is %d\n", modifier);
 #endif
 
-	modifier = 0;
+		j = 0;
 
-	if (is_shifted)
-		modifier |= MOD_SHFT;
+		for (i = 0; i < 6; i++)
+		{
+			usb_keycode = report.keycode[i];
 
-	if (is_alt)
-		modifier |= MOD_ALT;
+			if (usb_keycode == 0)
+				continue;
 
-	if (is_control)
-		modifier |= MOD_CTRL;
+			usbpressed[num_usbpressed++] = usb_keycode;
 
-	if (usb_keycode == 0)
-	{
-		keycode->row = 0;
-		keycode->column = 0;
-		keycode->modifier = modifier;
+			found = 0;
+
+			for (j = 0; j < num_previous_usbpressed; j++)
+			{
+				if (usb_keycode == previous_usbpressed[j])
+					found = 1;
+			}
+
+			if (found == 0)
+			{
+				last_usbpressed = usb_keycode;
+			}
+		}
+
+		for (i = 0; i < num_usbpressed; i++)
+		{
+			previous_usbpressed[i] = usbpressed[i];
+		}
+
+		num_previous_usbpressed = num_usbpressed;
+
+/* If there are no keys pressed then we don't have a valid key to report. */
+
+		if (num_usbpressed == 0)
+			last_usbpressed = 0;
+
+#if DEBUG > 0
+		fprintf(stderr,"read_usb_device: The usb_keycode %d wasn't zero, it was %02x, with queue count %d\n", i, usb_keycode, keycode_queue_count);
+#endif
+		usbkeycode2ql(last_usbpressed, usbmodifier, &current_qlkeycode);
+
+/*
+ * In case the QL keycode decode generates a modifier on its own we need to update our copy.
+ */
+
+		modifier = current_qlkeycode.modifier;
+
+		if ((modifier != 0) && (modifier != previous_modifier))
+		{
+
+#if DEBUG > 0
+		fprintf(stderr,"read_usb_device: modifier changed, old = %03x, new = %02x\n", modifier, previous_modifier);
+#endif
+			keycode_queue[keycode_queue_count].row = 0;
+			keycode_queue[keycode_queue_count].column = 0;
+			keycode_queue[keycode_queue_count].modifier = modifier;
+			keycode_queue_count++;
+		}
+
+		previous_modifier = modifier;
+
+#if DEBUG > 0
+		fprintf(stderr,"read_usb_device: adding keycode {%d,%d,%d} to the queue.\n", current_qlkeycode.row, current_qlkeycode.column, current_qlkeycode.modifier);
+#endif
+		keycode_queue[keycode_queue_count].row = current_qlkeycode.row;
+		keycode_queue[keycode_queue_count].column = current_qlkeycode.column;
+		keycode_queue[keycode_queue_count].modifier = current_qlkeycode.modifier;
+		keycode_queue_count++;
 	}
-	else
-	{
-		usbkeycode2ql(usb_keycode, modifier, keycode);
-	}
 
-	if ((processing_modifier == 0) && (keycode->modifier != 0))
-	{
-		processing_modifier = 1;
+	keycode->row = keycode_queue[keycode_queue_ptr].row;
+	keycode->column = keycode_queue[keycode_queue_ptr].column;
+	keycode->modifier = keycode_queue[keycode_queue_ptr].modifier;
 
-		keycode->row = 0;
-		keycode->column = 0;
-	}
-	else
-	{
-		processing_modifier = 0;
-	}
+
+#if DEBUG > 0
+		fprintf(stderr,"read_usb_device: setting the returned values keycode_queue[%d] row, column and modifier to %d, %d, %d\n", keycode_queue_ptr, keycode->row, keycode->column, keycode->modifier);
+#endif
+
+	oldkeycode.row = keycode_queue[keycode_queue_ptr].row;
+	oldkeycode.column = keycode_queue[keycode_queue_ptr].column;
+	oldkeycode.modifier = keycode_queue[keycode_queue_ptr].modifier;
+
+	keycode_queue_ptr++;
+	keycode_queue_count--;
+
+#if DEBUG > 0
+		fprintf(stderr,"read_usb_device: End of processing. keycode_queue_ptr = %d, keycode_queue_count = %d\n", keycode_queue_ptr, keycode_queue_count);
+#endif
 
 	return INPUT_USB;
 }
